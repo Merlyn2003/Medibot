@@ -31,6 +31,8 @@ with open(METADATA_PATH, "r", encoding="utf-8") as f:
 # Load BM25 Index
 bm25_index = open_dir(BM25_INDEX_DIR)
 
+#pipeline missing got to add it
+
 # Load LlamaCpp Model
 local_llm = "ggml-model-Q4_K_M.gguf"
 llm = LlamaCpp(model_path=local_llm, temperature=0.3, max_tokens=2048, top_p=1, n_ctx=2048)
