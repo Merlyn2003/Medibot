@@ -1,94 +1,145 @@
-import faiss
-import json
-import numpy as np
+from qdrant_client import QdrantClient, models
+from sentence_transformers import SentenceTransformer
 import gradio as gr
-from whoosh.index import open_dir
-from whoosh.qparser import QueryParser
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.prompts import PromptTemplate
+from typing import List, Dict
 from langchain_community.llms import LlamaCpp
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
-from langchain.schema import Document
-from langchain.vectorstores import FAISS
-from langchain.schema.retriever import BaseRetriever
 
-# Paths
-INDEX_PATH = "faiss_index.bin"
-METADATA_PATH = "metadata.json"
-BM25_INDEX_DIR = "bm25_index"
+# Configuration
+QDRANT_URL = "http://localhost:6333"
+COLLECTION_NAME = "try_db"
+EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
+LLM_MODEL_PATH = "ggml-model-Q4_K_M.gguf"  # <- Change this!
+INTENT_BOOST = 0.25
 
-# Load Embedding Model
-embedding_model = HuggingFaceEmbeddings(model_name="NeuML/pubmedbert-base-embeddings")
+MEDICAL_INTENTS = [
+    "treatment.drug", "treatment.surgery",
+    "adverse_effects", "diagnosis.symptoms",
+    "diagnosis.tests", "mechanism.pharmacology",
+    "general.info"
+]
 
-# Load FAISS Index
-index = faiss.read_index(INDEX_PATH)
+INTENT_RULES = """
+1. treatment.drug - Specific medications, dosages, drug therapies
+2. treatment.surgery - Surgical procedures, operative techniques
+3. adverse_effects - Side effects, complications, risks
+4. diagnosis.symptoms - Patient symptoms, clinical presentations
+5. diagnosis.tests - Lab tests, imaging studies, diagnostics
+6. mechanism.pharmacology - Drug MOA, biochemical processes
+7. general.info - Definitions, overviews, basic explanations
 
-# Load Metadata
-with open(METADATA_PATH, "r", encoding="utf-8") as f:
-    metadata = json.load(f)
+EXAMPLES:
+- "First-line antibiotics for pneumonia" → treatment.drug
+- "How does metformin work?" → mechanism.pharmacology
+- "MRI protocol for stroke" → diagnosis.tests
+- "What is SMA?" → general.info"""
 
-# Load BM25 Index
-bm25_index = open_dir(BM25_INDEX_DIR)
+class EnhancedMedicalRetriever:
+    def __init__(self):
+        self.embedder = SentenceTransformer(EMBEDDING_MODEL)
+        self.qdrant = QdrantClient(QDRANT_URL)
+        self.llm = LlamaCpp(model_path=LLM_MODEL_PATH, temperature=0.3, max_tokens=2048, top_p=1, n_ctx=2048)
 
-#pipeline missing got to add it
+        # Ensure intent index exists
+        self.qdrant.create_payload_index(
+            collection_name=COLLECTION_NAME,
+            field_name="intents",
+            field_schema=models.PayloadSchemaType.KEYWORD
+        )
 
-# Load LlamaCpp Model
-local_llm = "ggml-model-Q4_K_M.gguf"
-llm = LlamaCpp(model_path=local_llm, temperature=0.3, max_tokens=2048, top_p=1, n_ctx=2048)
+    def classify_intents(self, query: str) -> List[str]:
+        """Use local LLM to classify medical intent"""
+        try:
+            prompt = f"""Classify the query into 1-2 medical intents using these rules:
 
-# Define Prompt Template
-prompt_template = """Use the following retrieved context to answer the user's question.
-If you don't know the answer, just say you don't know. Don't make up an answer.
+{INTENT_RULES}
 
-Context: {retrieved_chunks}
-Chat History: {chat_history}
-Question: {question}
+Query: {query}
 
-Provide a helpful, detailed answer.
-Answer:
-"""
+Detected Intents (choose from: {', '.join(MEDICAL_INTENTS)}):"""
+            response = self.llm(prompt)
+            generated = response.lower().strip()
+            print(f"LLM Intent Output: {generated}")
+            return list(set(intent for intent in MEDICAL_INTENTS if intent in generated)) or ["general.info"]
+        except Exception as e:
+            print(f"Intent classification error: {e}")
+            return ["general.info"]
 
-# Memory for conversation history
-memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    def retrieve_context(self, query: str) -> List[Dict]:
+        """Retrieve context and boost scores by intent relevance"""
+        query_vector = self.embedder.encode(query).tolist()
+        query_intents = self.classify_intents(query)
 
-# Custom Hybrid Retriever
-class HybridRetriever(BaseRetriever):
-    def get_relevant_documents(self, query):
-        top_k = 5
-        query_vector = np.array([embedding_model.embed_query(query)], dtype=np.float32)
-        _, faiss_indices = index.search(query_vector, top_k)
+        results = self.qdrant.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_vector,
+            limit=5,
+            with_payload=True,
+            score_threshold=0.4
+        )
 
-        faiss_results = [list(metadata.keys())[i] for i in faiss_indices[0] if i < len(metadata)]
+        boosted_results = []
+        for hit in results:
+            chunk_intents = hit.payload.get("intents", [])
+            intent_matches = len(set(query_intents) & set(chunk_intents))
+            boosted_score = hit.score * (1 + INTENT_BOOST) ** intent_matches
 
-        with bm25_index.searcher() as searcher:
-            parser = QueryParser("content", bm25_index.schema)
-            bm25_query = parser.parse(query)
-            bm25_results = [hit["content"] for hit in searcher.search(bm25_query, limit=top_k)]
+            boosted_results.append({
+                "text": hit.payload["text"],
+                "score": round(boosted_score, 3),
+                "intent_matches": intent_matches,
+                "source": hit.payload.get("source", "Unknown"),
+                "original_score": round(hit.score, 3)
+            })
+        return sorted(boosted_results, key=lambda x: x["score"], reverse=True)
 
-        combined_results = {text: 2 for text in faiss_results}  # Higher weight for FAISS
-        for text in bm25_results:
-            combined_results[text] = combined_results.get(text, 0) + 1  # Boost if present in both
+    def generate_answer(self, query: str, context_chunks: List[Dict]) -> str:
+        """Use local LLM to generate answer from retrieved context"""
+        context_text = "\n".join([f"{i+1}. {chunk['text']}" for i, chunk in enumerate(context_chunks)])
+        prompt = f"""You are a helpful medical assistant. Use the following context to answer the query.
 
-        sorted_results = sorted(combined_results.keys(), key=lambda x: combined_results[x], reverse=True)[:top_k]
+Context:
+{context_text}
 
-        return [Document(page_content=text) for text in sorted_results]
+Query: {query}
 
-# Instantiate the custom retriever
-retriever = HybridRetriever()
+Answer:"""
+        response = self.llm(prompt)
+        return response.strip()
 
-# Create ConversationalRetrievalChain
-chain = ConversationalRetrievalChain.from_llm(
-    llm=llm,
-    retriever=retriever,
-    memory=memory
-)
+def format_response(results: List[Dict], query_intents: List[str]) -> str:
+    response = [
+        "### Detected Query Intents:",
+        f"{', '.join(query_intents) or 'None detected'}\n",
+        "### Most Relevant Contexts:"
+    ]
 
-# Generate Response with Conversational Memory
-def chatbot(message, history):  # Accept both message and history
-    response = chain.invoke({"question": message, "chat_history": history})
-    return response["answer"]
+    for idx, res in enumerate(results, 1):
+        response.append(
+            f"{idx}. {res['text']}\n"
+            f"   - Source: {res['source']}\n"
+            f"   - Intent matches: {res['intent_matches']}\n"
+            f"   - Relevance score: {res['score']} (base: {res['original_score']})"
+        )
+    return "\n".join(response)
 
-# Launch Gradio Chat Interface
-iface = gr.ChatInterface(fn=chatbot)
-iface.launch()
+retriever = EnhancedMedicalRetriever()
+
+def chat_interface(query, history):
+    results = retriever.retrieve_context(query)
+    query_intents = retriever.classify_intents(query)
+    answer = retriever.generate_answer(query, results)
+    metadata = format_response(results, query_intents)
+    return f"{answer}\n\n---\n\n{metadata}"
+
+# Gradio UI
+gr.ChatInterface(
+    chat_interface,
+    chatbot=gr.Chatbot(height=600, render_markdown=True),
+    title="Medical QA with Intent-Aware Retrieval (Local LLM)",
+    examples=[
+        "What are the contraindications for ibuprofen?",
+        "Explain the mechanism of action of SSRIs",
+        "What imaging tests are recommended for stroke diagnosis?"
+    ],
+    css=".gradio-container {max-width: 800px !important}"
+).launch(share=True)
