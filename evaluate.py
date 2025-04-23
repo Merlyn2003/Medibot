@@ -7,6 +7,7 @@ from typing import List, Dict
 from langchain_community.llms import LlamaCpp
 import json
 from sklearn.metrics.pairwise import cosine_similarity
+import bert_score
 
 # Configuration
 QDRANT_URL = "http://localhost:6333"
@@ -15,6 +16,7 @@ EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
 LLM_MODEL_PATH = "ggml-model-Q4_K_M.gguf"
 INTENT_BOOST = 0.25
 TEST_DATA_PATH = "test_dataset.json"
+BERTSCORE_MODEL = "bert-base-uncased"
 
 MEDICAL_INTENTS = [
     "treatment.drug", "treatment.surgery",
@@ -160,38 +162,81 @@ def calculate_similarity(generated: str, reference: str) -> float:
     emb2 = similarity_model.encode([reference])
     return cosine_similarity(emb1, emb2)[0][0]
 
+def calculate_bertscore_batch(generateds: List[str], references: List[str]) -> dict:
+    """Calculate BERTScore metrics for a batch of texts"""
+    P, R, F1 = bert_score.score(
+        generateds, 
+        references, 
+        lang="en",
+        model_type=BERTSCORE_MODEL,
+        batch_size=8,
+        device="cpu"
+    )
+    return {
+        "precision": P.numpy(),
+        "recall": R.numpy(),
+        "f1": F1.numpy()
+    }
+
 def evaluate_rag_system(test_data: List[dict], retriever: EnhancedMedicalRetriever):
-    """Full evaluation using local resources only"""
-    results = []
+    """Full evaluation with BERTScore metrics"""
+    # Phase 1: Generate all answers
+    all_questions = []
+    all_generated = []
+    all_references = []
+    all_contexts = []
     
+    print("Generating answers...")
     for example in tqdm(test_data):
         try:
-            # Generate answer
             contexts = retriever.retrieve_context(example["question"])
             answer = retriever.generate_answer(example["question"], contexts[:3])
             
-            # Calculate metrics
+            all_questions.append(example["question"])
+            all_generated.append(answer)
+            all_references.append(example["reference_answer"])
+            all_contexts.append([c["text"] for c in contexts])
+        except Exception as e:
+            print(f"Error processing {example['question']}: {str(e)}")
+            # Maintain list alignment
+            all_questions.append(example["question"])
+            all_generated.append("")
+            all_references.append("")
+            all_contexts.append([])
+
+    # Phase 2: Calculate metrics
+    print("Calculating metrics...")
+    results = []
+    
+    # Batch calculate BERTScore
+    bert_scores = calculate_bertscore_batch(all_generated, all_references)
+    
+    # Individual metrics
+    for idx in tqdm(range(len(all_questions))):
+        try:
             faithfulness = calculate_faithfulness(
-                answer,
-                [c["text"] for c in contexts],
+                all_generated[idx],
+                all_contexts[idx],
                 retriever.llm
             )
             
             similarity = calculate_similarity(
-                answer,
-                example["reference_answer"]
+                all_generated[idx],
+                all_references[idx]
             )
             
             results.append({
-                "question": example["question"],
+                "question": all_questions[idx],
                 "faithfulness": faithfulness,
                 "semantic_similarity": similarity,
-                "generated_answer": answer,
-                "reference_answer": example["reference_answer"]
+                "bertscore_precision": bert_scores["precision"][idx],
+                "bertscore_recall": bert_scores["recall"][idx],
+                "bertscore_f1": bert_scores["f1"][idx],
+                "generated_answer": all_generated[idx],
+                "reference_answer": all_references[idx]
             })
-            
         except Exception as e:
-            print(f"Error processing {example['question']}: {str(e)}")
+            print(f"Error processing metrics for {all_questions[idx]}: {str(e)}")
     
     return pd.DataFrame(results)
 
@@ -239,4 +284,7 @@ if __name__ == "__main__":
     print("\nEvaluation Results:")
     print(f"Average Faithfulness: {df['faithfulness'].mean():.2f}")
     print(f"Average Semantic Similarity: {df['semantic_similarity'].mean():.2f}")
+    print(f"BERTScore Precision: {df['bertscore_precision'].mean():.2f}")
+    print(f"BERTScore Recall: {df['bertscore_recall'].mean():.2f}")
+    print(f"BERTScore F1: {df['bertscore_f1'].mean():.2f}")
     print(f"Processed {len(df)}/{len(test_data)} questions successfully")
