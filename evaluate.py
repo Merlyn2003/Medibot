@@ -14,8 +14,8 @@ QDRANT_URL = "http://localhost:6333"
 COLLECTION_NAME = "try_db"
 EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
 LLM_MODEL_PATH = "ggml-model-Q4_K_M.gguf"
-INTENT_BOOST = 0.25
-TEST_DATA_PATH = "test_dataset.json"
+INTENT_BOOST = 0.15
+TEST_DATA_PATH = "test_dataset_with_intents.json"
 BERTSCORE_MODEL = "bert-base-uncased"
 
 MEDICAL_INTENTS = [
@@ -110,8 +110,8 @@ Detected Intents (choose from: {', '.join(MEDICAL_INTENTS)}):"""
     def generate_answer(self, query: str, context_chunks: List[Dict]) -> str:
         """Use local LLM to generate answer from retrieved context"""
         context_text = "\n".join([f"{i+1}. {chunk['text']}" for i, chunk in enumerate(context_chunks)])
-        prompt = f"""You are a helpful medical assistant. Use the following context to answer the query.
-
+        prompt = f"""You are a helpful medical assistant. Use the only the following context to answer the query.
+                    Do not generate any answers of your own. If unsure just say that the answer is not known
 Context:
 {context_text}
 
