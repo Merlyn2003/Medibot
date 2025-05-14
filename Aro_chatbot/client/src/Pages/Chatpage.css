@@ -1,0 +1,137 @@
+.lds-ellipsis {
+    display: inline-block;
+    position: relative;
+    width: 50px;
+    height: 50px;
+  }
+  .lds-ellipsis div {
+    position: absolute;
+    top: 33.33333px;
+    width: 13.33333px;
+    height: 13.33333px;
+    border-radius: 50%;
+    background: currentColor;
+    animation-timing-function: cubic-bezier(0, 1, 1, 0);
+  }
+  .lds-ellipsis div:nth-child(1) {
+    left: 4px;
+    animation: lds-ellipsis1 0.6s infinite;
+  }
+  .lds-ellipsis div:nth-child(2) {
+    left: 4px;
+    animation: lds-ellipsis2 0.6s infinite;
+  }
+  .lds-ellipsis div:nth-child(3) {
+    left: 16px;
+    animation: lds-ellipsis2 0.6s infinite;
+  }
+  .lds-ellipsis div:nth-child(4) {
+    left: 32px;
+    animation: lds-ellipsis3 0.6s infinite;
+  }
+
+
+
+  @keyframes lds-ellipsis1 {
+    0% {
+      transform: scale(0);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  @keyframes lds-ellipsis3 {
+    0% {
+      transform: scale(1);
+    }
+    100% {
+      transform: scale(0);
+    }
+  }
+  @keyframes lds-ellipsis2 {
+    0% {
+      transform: translate(0, 0);
+    }
+    100% {
+      transform: translate(24px, 0);
+    }
+  }
+  
+
+
+
+  /* Add to your Chatpage.css */
+.drug-info {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  color: #333;
+  line-height: 1.6;
+}
+
+.drug-info h3 {
+  color: #2c3e50;
+  font-size: 1.3rem;
+  margin-bottom: 0.2rem;
+}
+
+.drug-info .generic-name {
+  color: #7f8c8d;
+  font-style: italic;
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.drug-info .drug-meta {
+  background-color: #f8f9fa;
+  padding: 0.8rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.drug-info .drug-meta p {
+  margin: 0.3rem 0;
+}
+
+.drug-info .drug-section {
+  margin-bottom: 1.2rem;
+}
+
+.drug-info .drug-section h4 {
+  color: #2c3e50;
+  margin-bottom: 0.5rem;
+  font-size: 1.1rem;
+}
+
+.drug-info .drug-section.warning {
+  background-color: #fff8e1;
+  padding: 0.8rem;
+  border-radius: 8px;
+  border-left: 4px solid #ffc107;
+}
+
+.drug-info .drug-footer {
+  margin-top: 1.5rem;
+  text-align: center;
+}
+
+.drug-info .drug-footer a {
+  color: #3498db;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.drug-info .drug-footer a:hover {
+  text-decoration: underline;
+}
+
+/* Add to Chatpage.css */
+.read-more-btn {
+  background: none;
+  border: none;
+  color: #3498db;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  text-decoration: underline;
+}
+
