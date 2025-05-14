@@ -1,15 +1,18 @@
+from flask import Flask, request, jsonify
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
-import gradio as gr
-from typing import List, Dict
 from langchain_community.llms import LlamaCpp
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)
 
 # Configuration
 QDRANT_URL = "http://localhost:6333"
 COLLECTION_NAME = "try_db"
 EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
 LLM_MODEL_PATH = "ggml-model-Q4_K_M.gguf"  # <- Change this!
-INTENT_BOOST = 0.25
+INTENT_BOOST = 0.15
 
 MEDICAL_INTENTS = [
     "treatment.drug", "treatment.surgery",
@@ -39,15 +42,13 @@ class EnhancedMedicalRetriever:
         self.qdrant = QdrantClient(QDRANT_URL)
         self.llm = LlamaCpp(model_path=LLM_MODEL_PATH, temperature=0.3, max_tokens=2048, top_p=1, n_ctx=2048)
 
-        # Ensure intent index exists
         self.qdrant.create_payload_index(
             collection_name=COLLECTION_NAME,
             field_name="intents",
             field_schema=models.PayloadSchemaType.KEYWORD
         )
 
-    def classify_intents(self, query: str) -> List[str]:
-        """Use local LLM to classify medical intent"""
+    def classify_intents(self, query):
         try:
             prompt = f"""Classify the query into 1-2 medical intents using these rules:
 
@@ -58,14 +59,12 @@ Query: {query}
 Detected Intents (choose from: {', '.join(MEDICAL_INTENTS)}):"""
             response = self.llm(prompt)
             generated = response.lower().strip()
-            print(f"LLM Intent Output: {generated}")
             return list(set(intent for intent in MEDICAL_INTENTS if intent in generated)) or ["general.info"]
         except Exception as e:
             print(f"Intent classification error: {e}")
             return ["general.info"]
 
-    def retrieve_context(self, query: str) -> List[Dict]:
-        """Retrieve context and boost scores by intent relevance"""
+    def retrieve_context(self, query):
         query_vector = self.embedder.encode(query).tolist()
         query_intents = self.classify_intents(query)
 
@@ -90,10 +89,9 @@ Detected Intents (choose from: {', '.join(MEDICAL_INTENTS)}):"""
                 "source": hit.payload.get("source", "Unknown"),
                 "original_score": round(hit.score, 3)
             })
-        return sorted(boosted_results, key=lambda x: x["score"], reverse=True)
+        return sorted(boosted_results, key=lambda x: x["score"], reverse=True), query_intents
 
-    def generate_answer(self, query: str, context_chunks: List[Dict]) -> str:
-        """Use local LLM to generate answer from retrieved context"""
+    def generate_answer(self, query, context_chunks):
         context_text = "\n".join([f"{i+1}. {chunk['text']}" for i, chunk in enumerate(context_chunks)])
         prompt = f"""You are a helpful medical assistant. Use the following context to answer the query.
 
@@ -106,7 +104,9 @@ Answer:"""
         response = self.llm(prompt)
         return response.strip()
 
-def format_response(results: List[Dict], query_intents: List[str]) -> str:
+retriever = EnhancedMedicalRetriever()
+
+def format_response(results, query_intents):
     response = [
         "### Detected Query Intents:",
         f"{', '.join(query_intents) or 'None detected'}\n",
@@ -122,24 +122,27 @@ def format_response(results: List[Dict], query_intents: List[str]) -> str:
         )
     return "\n".join(response)
 
-retriever = EnhancedMedicalRetriever()
+@app.route("/chat", methods=["POST"])
+def chat():
+    try:
+        data = request.get_json()
+        query = data.get("query")
+        if not query:
+            return jsonify({"error": "No query provided"}), 400
 
-def chat_interface(query, history):
-    results = retriever.retrieve_context(query)
-    query_intents = retriever.classify_intents(query)
-    answer = retriever.generate_answer(query, results)
-    metadata = format_response(results, query_intents)
-    return f"{answer}\n\n---\n\n{metadata}"
+        results, query_intents = retriever.retrieve_context(query)
+        answer = retriever.generate_answer(query, results)
+        metadata = format_response(results, query_intents)
 
-# Gradio UI
-gr.ChatInterface(
-    chat_interface,
-    chatbot=gr.Chatbot(height=600, render_markdown=True),
-    title="Medical QA with Intent-Aware Retrieval (Local LLM)",
-    examples=[
-        "What are the contraindications for ibuprofen?",
-        "Explain the mechanism of action of SSRIs",
-        "What imaging tests are recommended for stroke diagnosis?"
-    ],
-    css=".gradio-container {max-width: 800px !important}"
-).launch(share=True)
+        return jsonify({
+            "answer": answer,
+            "query_intents": query_intents,
+            "contexts": results,
+            "response_metadata": metadata
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
