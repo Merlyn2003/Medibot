@@ -1,0 +1,99 @@
+/* Navbar.css */
+body {
+
+	display: flex;
+	
+	
+	flex-direction: column;
+  font-family: 'Open Sans', sans-serif;
+	height: 100vh;
+	margin: -20px 0 50px;
+}
+
+
+navbar {
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  font-family: 'Open Sans', sans-serif;
+  height: 80px; /* Adjusted height */
+  width: 100%;
+  position: fixed;
+  top: 0;
+  left: 0;
+  margin: 0;
+  background-color: #ffffff;
+  z-index: 1000; /* Ensures the navbar stays on top */
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.container {
+  padding-left: 15px;
+  padding-right: 15px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+header {
+  min-height: 80px;
+  display: flex;
+  width: 100%;
+}
+
+header .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+header .links li {
+  margin-left: 30px;
+  color: #030000;
+  cursor: pointer;
+  transition: .3s;
+}
+
+header .logo {
+  color: #5d5d5d;
+  font-style: italic;
+  text-transform: uppercase;
+  font-size: 20px;
+}
+
+header .links {
+  display: flex;
+  align-items: center;
+}
+
+header .links li:last-child {
+  border-radius: 20px;
+  padding: 10px 20px;
+  background-color: #6c63ff;
+}
+
+header .links li:not(:last-child) a:hover {
+  color: #6c63ff;
+}
+
+header .links li:not(:last-child) a {
+  margin-left: 30px;
+  color: #5d5d5d;
+  text-decoration: none;
+  transition: .3s;
+}
+
+hr{
+  width: 60%;
+ height: 3px;
+ margin-left: 30px;
+ border-radius: 10px;
+ border: none;
+ background-color: #6c63ff;
+}
