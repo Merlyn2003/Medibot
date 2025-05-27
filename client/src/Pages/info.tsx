@@ -35,8 +35,8 @@ const Info = () => {
           <div className="features-grid">
             <div className="feature-card">
               <Heart className="feature-icon" />
-              <h3>Symptom Checker</h3>
-              <p>Intelligent analysis of symptoms with personalized health insights</p>
+              <h3>Disease Info</h3>
+              <p>Verified and comprehensive overview on diseases, symptoms and their treatment</p>
             </div>
             <div className="feature-card">
               <Pill className="feature-icon" />
@@ -45,13 +45,13 @@ const Info = () => {
             </div>
             <div className="feature-card">
               <Brain className="feature-icon" />
-              <h3>Mental Health</h3>
-              <p>Support resources and guidance for emotional well-being</p>
+              <h3>Nearby hospital Finder</h3>
+              <p>Support finding nearby hospital based on location</p>
             </div>
             <div className="feature-card">
               <Calendar className="feature-icon" />
-              <h3>Appointments</h3>
-              <p>Smart scheduling and reminder system for medical visits</p>
+              <h3>News</h3>
+              <p>Latest news curated specifically for medical domain</p>
             </div>
           </div>
         </section>
